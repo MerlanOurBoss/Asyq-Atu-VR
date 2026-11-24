@@ -63,7 +63,7 @@ namespace AsykAtu
         {
             // Меню
             ["lang.name"] = new[] { "Қазақша", "Русский", "English" },
-            ["menu.title"] = new[] { "Асық ату", "Асық ату", "Asyk Atu" },
+            ["menu.title"] = new[] { "Asyq Atu VR", "Asyq Atu VR", "Asyq Atu VR" },
             ["mode.training"] = new[] { "Жаттығу", "Тренировка", "Training" },
             ["mode.vsbot"] = new[] { "Ботқа қарсы", "Против бота", "Versus bot" },
             ["mode.two"] = new[] { "Екі ойыншы, бір шлем", "Двое на одном шлеме", "Two players, one headset" },
