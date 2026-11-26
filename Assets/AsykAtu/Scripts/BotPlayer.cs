@@ -31,13 +31,14 @@ namespace AsykAtu
         public Transform attach;
 
         [Header("Уровни")]
-        [Tooltip("Проверены на моделях костей с 3 м (по 16 бросков на уровень): лёгкий попал в 50 % бросков, средний в 50 %, сильный в 87 %. " +
-                 "Выборка маленькая (±12 %), лёгкий и средний стоит развести сильнее.")]
+        [Tooltip("Попадания по полному кону с 3 м (по 20 бросков): лёгкий 3.5°/8 % — 30 %. " +
+                 "Средний при 1.2°/2.5 % попадал в 90 %, поэтому ослаблен до 2.3°/5 % (цель ~60 %), сильный — 0.8°/1.5 % (цель ~90 %); " +
+                 "новые значения среднего и сильного ещё не перемерены.")]
         public BotLevel[] levels =
         {
-            new BotLevel { name = "Лёгкий", yawSpread = 2.2f, speedSpread = 0.05f },
-            new BotLevel { name = "Средний", yawSpread = 1.2f, speedSpread = 0.025f },
-            new BotLevel { name = "Сильный", yawSpread = 0.5f, speedSpread = 0.01f },
+            new BotLevel { name = "Лёгкий", yawSpread = 3.5f, speedSpread = 0.08f },
+            new BotLevel { name = "Средний", yawSpread = 2.3f, speedSpread = 0.05f },
+            new BotLevel { name = "Сильный", yawSpread = 0.8f, speedSpread = 0.015f },
         };
         public int level = 1;
 
