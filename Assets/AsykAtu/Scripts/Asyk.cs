@@ -28,7 +28,9 @@ namespace AsykAtu
         [Tooltip("Ось стороны должна смотреть вверх не хуже этого (косинус угла), иначе сторона не определена.")]
         [Range(0f, 1f)] public float sideThreshold = 0.8f;
 
-        public Rigidbody Body { get; private set; }
+        Rigidbody body;
+        /// <summary>Rigidbody кости. Находится лениво: в редакторе Awake может ещё не вызываться.</summary>
+        public Rigidbody Body => body != null ? body : body = GetComponent<Rigidbody>();
 
         /// <summary>Какой стороной вверх лежит кость сейчас.</summary>
         public AsykSide UpSide
@@ -69,7 +71,6 @@ namespace AsykAtu
 
         void Awake()
         {
-            Body = GetComponent<Rigidbody>();
             Body.interpolation = RigidbodyInterpolation.Interpolate;
             Body.collisionDetectionMode = fast
                 ? CollisionDetectionMode.ContinuousDynamic
