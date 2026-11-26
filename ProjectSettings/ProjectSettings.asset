@@ -13,7 +13,7 @@ PlayerSettings:
   useOnDemandResources: 0
   accelerometerFrequency: 60
   companyName: DefaultCompany
-  productName: Asyk Atu
+  productName: Asyq Atu VR
   defaultCursor: {fileID: 0}
   cursorHotspot: {x: 0, y: 0}
   m_SplashScreenBackgroundColor: {r: 0.13725491, g: 0.12156863, b: 0.1254902, a: 1}
@@ -174,10 +174,10 @@ PlayerSettings:
   androidMaxAspectRatio: 2.4
   androidMinAspectRatio: 1
   applicationIdentifier:
-    Android: com.DefaultCompany.VRTemplate
-    Standalone: com.Default-Company.VR-Template
-    VisionOS: com.Default-Company.VR-Template
-    iPhone: com.Default-Company.VR-Template
+    Android: com.merlan.asyqatuvr
+    Standalone: com.merlan.asyqatuvr
+    VisionOS: com.merlan.asyqatuvr
+    iPhone: com.merlan.asyqatuvr
   buildNumber:
     Standalone: 0
     VisionOS: 0
@@ -936,14 +936,14 @@ PlayerSettings:
   editorAssembliesCompatibilityLevel: 1
   m_RenderingPath: 1
   m_MobileRenderingPath: 1
-  metroPackageName: AsykAtu
+  metroPackageName: AsyqAtuVR
   metroPackageVersion: 
   metroCertificatePath: 
   metroCertificatePassword: 
   metroCertificateSubject: 
   metroCertificateIssuer: 
   metroCertificateNotAfter: 0000000000000000
-  metroApplicationDescription: Asyk Atu
+  metroApplicationDescription: Asyq Atu VR
   wsaImages: {}
   metroTileShortName: 
   metroTileShowName: 0
