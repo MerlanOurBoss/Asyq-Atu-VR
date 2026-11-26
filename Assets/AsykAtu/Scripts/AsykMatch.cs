@@ -54,6 +54,12 @@ namespace AsykAtu
         [Tooltip("Дольше этого не ждём, считаем как есть, с.")]
         public float maxWaitTime = 6f;
 
+        [Header("Сақа у ног")]
+        [Tooltip("Насколько впереди ног игрока кладём сақа перед его ходом, м.")]
+        public float feetForward = 0.3f;
+        [Tooltip("Насколько правее (под бросающую руку), м.")]
+        public float feetRight = 0.2f;
+
         public AsykGame Game { get; private set; }
         public AsykRules Rules => rulesOptions[rulesIndex];
         public Mode CurrentMode { get; private set; }
@@ -69,16 +75,21 @@ namespace AsykAtu
 
         const float PopupDuration = 1.5f;
         const float StickThreshold = 0.6f;
+        const string SaqaPref = "AsykAtu.SaqaVariant";
+
+        /// <summary>Строки меню сверху вниз.</summary>
+        public enum MenuRow { Mode, Bot, Saqa, Rules, Language }
 
         readonly List<Asyk> kon = new List<Asyk>();
         readonly List<Pose> homes = new List<Pose>();
         readonly List<AsykSide> tosses = new List<AsykSide>();
         State state;
         Mode menuMode = Mode.VsBot;
-        int rulesIndex, activePlayer = -1, throwsInGame, stickX, stickY;
+        MenuRow menuRow = MenuRow.Mode;
+        int rulesIndex, activePlayer = -1, throwsInGame, stickX, stickY, playerSaqa;
         bool tossing, throwFoul;
         float settleStart, restingSince, pauseUntil, popupStart = -10f, exitArmedUntil;
-        string status = "", tossLog = "";
+        string status = "", tossLog = "", readyMessage = "";
         Action afterPause;
         SaqaHand lastHand;
         InputAction primary, secondary, cycleRules, navigate;
@@ -118,7 +129,14 @@ namespace AsykAtu
             return action;
         }
 
-        void Start() => ShowMenu();
+        void Start()
+        {
+            playerSaqa = PlayerPrefs.GetInt(SaqaPref, 0);
+            ShowMenu();
+        }
+
+        public MenuRow SelectedRow => menuRow;
+        public int PlayerSaqaVariant => playerSaqa;
 
         void Update()
         {
@@ -152,15 +170,41 @@ namespace AsykAtu
             stickY = y;
         }
 
-        /// <summary>Стик в меню: вверх/вниз — режим, влево/вправо — сложность бота.</summary>
+        /// <summary>Стик в меню: вверх/вниз — строка, влево/вправо — значение в ней.</summary>
         public void Navigate(int dx, int dy)
         {
             if (state != State.Menu) return;
-            if (dy != 0) menuMode = (Mode)(((int)menuMode - dy + ModeKeys.Length) % ModeKeys.Length);
-            if (dx != 0 && menuMode == Mode.VsBot && bot != null)
-                bot.level = Mathf.Clamp(bot.level + dx, 0, bot.levels.Length - 1);
+            int rows = Enum.GetValues(typeof(MenuRow)).Length;
+            if (dy != 0) menuRow = (MenuRow)(((int)menuRow - dy + rows) % rows);
+            if (dx != 0)
+            {
+                switch (menuRow)
+                {
+                    case MenuRow.Mode:
+                        menuMode = (Mode)Cycle((int)menuMode, dx, ModeKeys.Length);
+                        break;
+                    case MenuRow.Bot:
+                        if (bot != null) bot.level = Cycle(bot.level, dx, bot.levels.Length);
+                        break;
+                    case MenuRow.Saqa:
+                        playerSaqa = Cycle(playerSaqa, dx, Mathf.Max(1, saqa.variants.Length));
+                        PlayerPrefs.SetInt(SaqaPref, playerSaqa);
+                        PlayerPrefs.Save();
+                        saqa.ApplyVariant(playerSaqa);              // видно сразу: сақа лежит у ног
+                        break;
+                    case MenuRow.Rules:
+                        rulesIndex = Cycle(rulesIndex, dx, rulesOptions.Length);
+                        ApplyRules();
+                        break;
+                    case MenuRow.Language:
+                        Loc.Set((Language)Cycle((int)Loc.Current, dx, 3));
+                        break;
+                }
+            }
             Refresh();
         }
+
+        static int Cycle(int value, int step, int count) => ((value + step) % count + count) % count;
 
         /// <summary>A / X: в меню — начать выбранный режим, при передаче шлема — начать ход, после матча — в меню.</summary>
         public void PressPrimary()
@@ -172,7 +216,7 @@ namespace AsykAtu
                     break;
                 case State.Handover:
                     activePlayer = tossing ? tosses.Count : Game.Current;
-                    SetReady(status);
+                    SetReady(readyMessage);
                     break;
                 case State.MatchOver:
                     ShowMenu();
@@ -223,6 +267,7 @@ namespace AsykAtu
             Game = null;
             activePlayer = -1;
             ClearKon();
+            if (!saqa.IsHeld) saqa.ApplyVariant(playerSaqa);   // в меню видно выбранный сақа у ног
             ApplyRules();
             Refresh();
         }
@@ -269,14 +314,21 @@ namespace AsykAtu
             if (IsBot(player))
             {
                 // Состояние Ready, чтобы бросок бота засчитался, но игроку сақа не взять.
+                // У бота свой обычный сақа — первый вариант.
                 state = State.Ready;
                 saqa.Locked = true;
+                if (!saqa.IsHeld) saqa.ApplyVariant(0);
                 status = $"{message}\n{Loc.F("turn", Name(player))}";
                 Refresh();
                 if (tossing) bot.Toss();
                 else bot.ThrowAt(ChooseTarget());
                 return;
             }
+
+            // Ход человека: его сақа лежит у ног, поднять рукой.
+            if (!saqa.IsHeld) saqa.ApplyVariant(playerSaqa);
+            ResetSaqa();
+            readyMessage = $"{message}\n<size=70%>{Loc.Get("pickup")}</size>";
             if (CurrentMode == Mode.TwoPlayers && player != activePlayer)
             {
                 state = State.Handover;
@@ -285,7 +337,7 @@ namespace AsykAtu
                 Refresh();
                 return;
             }
-            SetReady(message);
+            SetReady(readyMessage);
         }
 
         void SetReady(string message)
@@ -381,6 +433,7 @@ namespace AsykAtu
 
             TurnResult result = Game.Throw(knocked, saqaInOrda, throwFoul);
             ThrowJudged?.Invoke(thrower, knocked, throwFoul);
+            if (!IsBot(thrower)) PlayerStats.RecordThrow(knocked);
             if (knocked > 0)
             {
                 ShowPopup($"+{knocked}");
@@ -397,6 +450,8 @@ namespace AsykAtu
                     state = State.MatchOver;
                     saqa.Locked = true;
                     string verdict = PlayerCount > 1 ? Loc.F("match.won", Name(thrower)) : Loc.Get("training.over");
+                    if (CurrentMode == Mode.Training) verdict += TrainingRecordNote();
+                    if (CurrentMode == Mode.VsBot && bot != null) PlayerStats.RecordBotMatch(bot.level, !IsBot(thrower));
                     status = $"{summary}\n{verdict}\n<size=70%>{Loc.Get("to.menu")}</size>";
                     Refresh();
                     return;
@@ -404,7 +459,7 @@ namespace AsykAtu
                 case TurnResult.GameWon:
                     status = summary + "\n" + (PlayerCount > 1
                         ? Loc.F("game.won", Name(thrower), Game.GameNumber)
-                        : Loc.F("training.game", Rules.winTarget, throwsInGame));
+                        : Loc.F("training.game", Rules.winTarget, throwsInGame) + TrainingRecordNote());
                     Pause(3f, StartNextGame);
                     return;
 
@@ -419,6 +474,10 @@ namespace AsykAtu
                     return;
             }
         }
+
+        /// <summary>Партия тренировки закончена: записать в рекорды и, если рекорд, сказать об этом.</summary>
+        string TrainingRecordNote() =>
+            PlayerStats.RecordTrainingGame(Rules.name, throwsInGame) ? "\n<color=#E8B95A>" + Loc.Get("record.new") + "</color>" : "";
 
         bool HeadPastLine()
         {
@@ -454,12 +513,21 @@ namespace AsykAtu
         Vector3 ChooseTarget() =>
             kon.Count > 0 ? kon[UnityEngine.Random.Range(0, kon.Count)].transform.position : orda.Center;
 
-        /// <summary>Сақа на землю рядом с линией броска, чтобы не лежал в коне.</summary>
+        /// <summary>
+        /// Сақа на землю у ног игрока: чуть впереди и справа, под бросающую руку.
+        /// Никогда не за линией броска — иначе за ним пришлось бы заступать.
+        /// </summary>
         void ResetSaqa()
         {
             if (saqa.IsHeld) return;
-            Vector3 p = orda.Center - orda.transform.forward * (Rules.throwDistance - 0.2f) + orda.transform.right * 0.4f;
-            saqa.Bone.PlaceAt(p + Vector3.up * HalfHeight(saqa.Bone), orda.transform.rotation);
+            Vector3 forward = orda.transform.forward, right = orda.transform.right;
+            Vector3 feet = head != null ? head.position : orda.Center - forward * (Rules.throwDistance + 0.3f);
+            feet.y = orda.Center.y;
+            Vector3 p = feet + forward * feetForward + right * feetRight;
+            float fromCenter = Vector3.Dot(p - orda.Center, -forward);
+            float minFromCenter = Rules.throwDistance + 0.15f;
+            if (fromCenter < minFromCenter) p -= forward * (minFromCenter - fromCenter);
+            saqa.Bone.PlaceAt(p + Vector3.up * HalfHeight(saqa.Bone), orda.transform.rotation * Quaternion.Euler(0f, 25f, 0f));
         }
 
         /// <summary>Кон тігу: каждый ставит свои асыки в ряд. В тренировке кон как на двоих.</summary>
@@ -549,6 +617,16 @@ namespace AsykAtu
             popup.alpha = 1f - t * t;
         }
 
+        /// <summary>Строка меню: выбранная — жёлтая со стрелкой, неактивная (бот вне режима с ботом) — бледная.</summary>
+        void MenuLine(System.Text.StringBuilder menu, MenuRow row, string text, bool active)
+        {
+            bool selected = menuRow == row;
+            if (selected) menu.Append("<color=#FFD54A>> ").Append(text).Append("</color>");
+            else if (!active) menu.Append("<color=#8C7E66>").Append(text).Append("</color>");
+            else menu.Append(text);
+            menu.Append('\n');
+        }
+
         void Refresh()
         {
             if (board == null) return;
@@ -557,19 +635,23 @@ namespace AsykAtu
 
             if (state == State.Menu)
             {
-                var menu = new System.Text.StringBuilder(Loc.Get("menu.title")).Append("\n\n");
-                for (int i = 0; i < ModeKeys.Length; i++)
-                {
-                    bool selected = (int)menuMode == i;
-                    if (selected) menu.Append("<color=#FFD54A>> ");
-                    menu.Append(Loc.Get(ModeKeys[i]));
-                    if ((Mode)i == Mode.VsBot && bot != null) menu.Append(": ").Append(Loc.GetOr("bot.level" + bot.level, bot.Level.name));
-                    if (selected) menu.Append("</color>");
-                    menu.Append('\n');
-                }
-                menu.Append("\n<size=70%>").Append(Loc.Get("menu.help")).Append('\n')
-                    .Append(Loc.F("menu.rules", rules, Rules.gamesToWin)).Append('\n')
-                    .Append(Loc.F("menu.language", Loc.Get("lang.name"))).Append("</size>");
+                string botLevel = bot != null ? Loc.GetOr("bot.level" + bot.level, bot.Level.name) : "—";
+                string saqaName = saqa.variants != null && saqa.variants.Length > 0 ? Loc.Get(saqa.variants[playerSaqa].key) : "—";
+                var menu = new System.Text.StringBuilder("<size=130%><color=#E8B95A>")
+                    .Append(Loc.Get("menu.title")).Append("</color></size>\n\n");
+                MenuLine(menu, MenuRow.Mode, Loc.F("menu.row.mode", Loc.Get(ModeKeys[(int)menuMode])), true);
+                MenuLine(menu, MenuRow.Bot, Loc.F("menu.row.bot", botLevel), menuMode == Mode.VsBot);
+                MenuLine(menu, MenuRow.Saqa, Loc.F("menu.row.saqa", saqaName), true);
+                MenuLine(menu, MenuRow.Rules, Loc.F("menu.row.rules", rules), true);
+                MenuLine(menu, MenuRow.Language, Loc.F("menu.row.lang", Loc.Get("lang.name")), true);
+
+                menu.Append("\n<size=70%>").Append(Loc.Get("menu.help")).Append("\n<color=#C9B48A>")
+                    .Append(Loc.F("stats.accuracy", PlayerStats.AccuracyPercent, PlayerStats.Throws)).Append(" · ");
+                int best = PlayerStats.BestTraining(Rules.name);
+                menu.Append(best > 0 ? Loc.F("stats.best", Rules.winTarget, best) : Loc.Get("stats.nobest"));
+                if (bot != null)
+                    menu.Append('\n').Append(Loc.F("stats.bot", botLevel, PlayerStats.BotWins(bot.level), PlayerStats.BotLosses(bot.level)));
+                menu.Append("</color></size>");
                 board.text = menu.ToString();
                 return;
             }

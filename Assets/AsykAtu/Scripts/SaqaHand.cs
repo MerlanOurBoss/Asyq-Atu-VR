@@ -7,8 +7,8 @@ namespace AsykAtu
     public enum HandSide { Left, Right }
 
     /// <summary>
-    /// Рука, которая бросает сақа. Grip пустой рукой — сақа сразу оказывается в ладони
-    /// (поднимать его с пола не нужно). Отпустить Grip — бросок.
+    /// Рука, которая бросает сақа. Сақа берётся только рукой рядом с ним: поднести ладонь
+    /// (он подсветится, контроллер коротко дрогнет) и сжать Grip. Отпустить Grip — бросок.
     /// Скорость броска — не последний кадр, а среднее нескольких самых быстрых кадров
     /// за последние ~0.1 с: игрок отпускает кнопку чуть позже пика скорости руки.
     /// Вешается на объект контроллера (с TrackedPoseDriver).
@@ -25,6 +25,8 @@ namespace AsykAtu
         [Range(0f, 1f)] public float releaseThreshold = 0.35f;
         [Tooltip("Отладка без шлема: 0..1 заменяет кнопку, -1 — читать контроллер.")]
         [Range(-1f, 1f)] public float squeezeOverride = -1f;
+        [Tooltip("С какого расстояния от ладони до сақа его можно взять, м.")]
+        public float grabRadius = 0.1f;
 
         [Header("Бросок")]
         [Tooltip("Множитель скорости броска. В VR броски без него ощущаются слабее, чем в жизни.")]
@@ -37,6 +39,8 @@ namespace AsykAtu
         public bool IsHolding => saqa != null && saqa.IsHeld && saqa.Holder == this;
         /// <summary>Насколько сжата кнопка (0..1).</summary>
         public float Squeeze { get; private set; }
+        /// <summary>Ладонь достаточно близко, чтобы взять сақа.</summary>
+        public bool InReach { get; private set; }
 
         struct Sample
         {
@@ -86,15 +90,33 @@ namespace AsykAtu
 
             Record();
 
+            bool wasInReach = InReach;
+            InReach = !IsHolding && saqa != null && saqa.CanTake && DistanceToSaqa() <= grabRadius;
+            if (InReach)
+            {
+                saqa.Glow();
+                if (!wasInReach) Pulse(0.15f, 0.02f);              // «можно брать»
+            }
+
             if (IsHolding)
             {
                 if (!pressed) Throw();
             }
-            else if (pressed && !wasPressed && saqa != null && saqa.CanTake)
+            else if (pressed && !wasPressed && InReach)
             {
                 saqa.Hold(this, attach);
+                InReach = false;
                 Pulse(0.3f, 0.04f);
             }
+        }
+
+        /// <summary>От центра ладони (точки хвата контроллера) до поверхности сақа, м.</summary>
+        public float DistanceToSaqa()
+        {
+            var col = saqa.GetComponent<Collider>();
+            Vector3 palm = transform.position;
+            Vector3 closest = col != null && col.enabled ? col.ClosestPoint(palm) : saqa.transform.position;
+            return Vector3.Distance(palm, closest);
         }
 
         void Record()
@@ -106,7 +128,8 @@ namespace AsykAtu
 
         void Throw()
         {
-            Vector3 velocity = PeakVelocity(out Vector3 angularVelocity) * throwBoost;
+            // Тяжёлый сақа (құйма) рука разгоняет хуже.
+            Vector3 velocity = PeakVelocity(out Vector3 angularVelocity) * (throwBoost * saqa.SpeedFactor);
             saqa.Release(velocity, angularVelocity);
             Pulse(0.5f, 0.05f);
         }

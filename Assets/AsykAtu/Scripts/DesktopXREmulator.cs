@@ -15,7 +15,7 @@ namespace AsykAtu
     public class DesktopXREmulator : MonoBehaviour
     {
         public enum Mode { Auto, Always, Never }
-        enum ThrowState { Idle, Charging, Swinging }
+        enum ThrowState { Idle, Reaching, Returning, Charging, Swinging }
 
         [Tooltip("Auto — только когда шлем не подключён.")]
         public Mode mode = Mode.Auto;
@@ -51,6 +51,8 @@ namespace AsykAtu
         public float followThrough = 0.2f;
         [Tooltip("Угол броска над линией взгляда, град. Меняется колесом.")]
         [Range(-20f, 45f)] public float lift = 8f;
+        [Tooltip("Скорость руки при движении к сақа и обратно, м/с. Как у живой руки.")]
+        public float handSpeed = 2.5f;
 
         public bool IsActive { get; private set; }
         /// <summary>Набранная сила замаха (0..1).</summary>
@@ -58,7 +60,7 @@ namespace AsykAtu
 
         const string HelpText =
             "Мышь — смотреть и целиться\n" +
-            "ЛКМ — взять сақа и замахнуться, отпустить — бросок\n" +
+            "ЛКМ — дотянуться до сақа у ног и взять, держать — замах, отпустить — бросок\n" +
             "Колесо — угол броска\n" +
             "WASD — шаг,  C — присесть\n" +
             "Стрелки — стик,  Enter или 1 — кнопка A,  2 — кнопка B,  Tab — клик стика\n" +
@@ -136,21 +138,28 @@ namespace AsykAtu
             UpdateHand(dt);
         }
 
-        /// <summary>Сжать Grip: сақа прыгает в руку.</summary>
+        /// <summary>Нажать «хват»: рука тянется к сақа, сжимается рядом с ним и несёт обратно.</summary>
         public void Grip()
         {
             if (state != ThrowState.Idle) return;
-            saqaHand.squeezeOverride = 1f;
+            var saqa = saqaHand.saqa;
+            if (saqa != null && saqa.CanTake) state = ThrowState.Reaching;
         }
 
-        /// <summary>Отпустить Grip. Если был замах — рука идёт вперёд и бросает.</summary>
+        /// <summary>Отпустить «хват». Если сақа в руке — рука идёт вперёд и бросает.</summary>
         public void LetGo()
         {
-            if (state != ThrowState.Charging)
+            bool holding = saqaHand.IsHolding && (state == ThrowState.Charging || state == ThrowState.Returning);
+            if (!holding)
             {
-                if (state == ThrowState.Idle) saqaHand.squeezeOverride = 0f;
+                if (state == ThrowState.Reaching || state == ThrowState.Idle)
+                {
+                    saqaHand.squeezeOverride = 0f;
+                    state = ThrowState.Idle;
+                }
                 return;
             }
+            if (state == ThrowState.Returning) Charge = 0f;
             swingSpeed = Mathf.Lerp(minSpeed, maxSpeed, Charge);
             swingStart = hand.position;
             swingDir = AimDirection();
@@ -166,9 +175,26 @@ namespace AsykAtu
             switch (state)
             {
                 case ThrowState.Idle:
-                    hand.SetPositionAndRotation(rest, head.rotation);
-                    // Сақа в руке (взяли на прошлом кадре) — начинаем замах.
-                    if (saqaHand.squeezeOverride > 0f && saqaHand.IsHolding)
+                    MoveHand(rest, handSpeed, dt);
+                    break;
+
+                case ThrowState.Reaching:
+                    var saqa = saqaHand.saqa;
+                    if (saqa == null || (!saqa.CanTake && !saqaHand.IsHolding))
+                    {
+                        state = ThrowState.Idle;
+                        break;
+                    }
+                    MoveHand(saqa.transform.position + Vector3.up * 0.03f, handSpeed, dt);
+                    // Ладонь рядом — сжимаем; SaqaHand возьмёт сақа в LateUpdate этого кадра.
+                    if (saqaHand.DistanceToSaqa() <= saqaHand.grabRadius * 0.8f) saqaHand.squeezeOverride = 1f;
+                    if (saqaHand.IsHolding) state = ThrowState.Returning;
+                    break;
+
+                case ThrowState.Returning:
+                    MoveHand(rest, handSpeed, dt);
+                    if (!saqaHand.IsHolding) state = ThrowState.Idle;
+                    else if ((hand.position - rest).sqrMagnitude < 0.0001f)
                     {
                         state = ThrowState.Charging;
                         chargeStart = Time.time;
@@ -177,7 +203,7 @@ namespace AsykAtu
 
                 case ThrowState.Charging:
                     Charge = Mathf.Clamp01((Time.time - chargeStart) / chargeTime);
-                    hand.SetPositionAndRotation(rest - AimDirection() * (windUp * Charge), head.rotation);
+                    MoveHand(rest - AimDirection() * (windUp * Charge), handSpeed, dt);
                     if (!saqaHand.IsHolding) state = ThrowState.Idle;
                     break;
 
@@ -197,6 +223,10 @@ namespace AsykAtu
         }
 
         Vector3 AimDirection() => Quaternion.AngleAxis(-lift, head.right) * head.forward;
+
+        /// <summary>Рука идёт к точке с человеческой скоростью, а не прыгает: иначе прыжок попал бы в скорость броска.</summary>
+        void MoveHand(Vector3 target, float speed, float dt) =>
+            hand.SetPositionAndRotation(Vector3.MoveTowards(hand.position, target, speed * dt), head.rotation);
 
         void SetActive(bool active)
         {
